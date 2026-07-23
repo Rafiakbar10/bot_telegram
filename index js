@@ -1,0 +1,56 @@
+const TelegramBot = require('node-telegram-bot-api');
+const puppeteer = require('puppeteer');
+
+const BOT_TOKEN = process.env.BOT_TOKEN;
+const API_KEY = process.env.API_KEY;
+
+const bot = new TelegramBot(BOT_TOKEN, { polling: true });
+
+console.log("🚀 Bot Railway jalan...");
+
+bot.on('message', async (msg) => {
+  const chatId = msg.chat.id;
+  const text = msg.text;
+
+  if (!text || text.startsWith('/')) return;
+
+  bot.sendMessage(chatId, "⏳ Proses...");
+
+  try {
+    const browser = await puppeteer.launch({
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
+
+    const page = await browser.newPage();
+
+    await page.goto('https://gtc.topupcuy.com', {
+      waitUntil: 'networkidle2'
+    });
+
+    const result = await page.evaluate(async (text, API_KEY) => {
+      const res = await fetch("https://gtc.topupcuy.com/api/v1/check", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": API_KEY
+        },
+        body: JSON.stringify({
+          number: text,
+          strategy: "smart",
+          wait: false
+        })
+      });
+
+      return await res.text();
+    }, text, API_KEY);
+
+    await browser.close();
+
+    bot.sendMessage(chatId, "✅ HASIL:\n\n" + result);
+
+  } catch (err) {
+    console.log(err);
+    bot.sendMessage(chatId, "❌ Error Railway");
+  }
+});
