@@ -1,12 +1,11 @@
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
 
-// Membaca token dan API key dari variabel lingkungan Railway
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const API_KEY_GTC = process.env.API_KEY_GTC;
 
 if (!TELEGRAM_TOKEN || !API_KEY_GTC) {
-  console.error('Error: TELEGRAM_TOKEN atau API_KEY_GTC belum diisi di Railway!');
+  console.error('Error: TELEGRAM_TOKEN atau API_KEY_GTC belum diisi!');
   process.exit(1);
 }
 
@@ -45,28 +44,40 @@ bot.on('message', async (msg) => {
       {
         headers: {
           'Content-Type': 'application/json',
-          'x-api-key': API_KEY_GTC
-        }
+          'x-api-key': API_KEY_GTC.trim()
+        },
+        timeout: 60000 // Beri waktu hingga 60 detik karena wait: true butuh waktu captcha
       }
     );
 
     const result = response.data;
+    console.log('Respon API:', JSON.stringify(result));
 
-    if (result && result.data) {
+    // Jika respon mengembalikan data/tags
+    if (result && (result.data || result.tags)) {
+      const dataTag = result.data || result;
       let messageText = `*Hasil Cek Nomor ${text}:*\n\n`;
-      
-      if (Array.isArray(result.data.tags)) {
-        messageText += result.data.tags.map(tag => `- ${tag}`).join('\n');
+
+      if (Array.isArray(dataTag.tags)) {
+        messageText += dataTag.tags.map((tag) => `- ${tag}`).join('\n');
+      } else if (typeof dataTag === 'object') {
+        messageText += '```json\n' + JSON.stringify(dataTag, null, 2) + '\n```';
       } else {
-        messageText += JSON.stringify(result.data, null, 2);
+        messageText += String(dataTag);
       }
 
       bot.sendMessage(chatId, messageText, { parse_mode: 'Markdown' });
     } else {
-      bot.sendMessage(chatId, 'Data tidak ditemukan atau terjadi kesalahan.');
+      bot.sendMessage(chatId, 'Pengecekan selesai, namun tidak ada tagar yang ditemukan.');
     }
   } catch (error) {
-    console.error(error);
+    // Mencatat detail error ke Log Railway
+    if (error.response) {
+      console.error('Error dari API Topupcuy:', error.response.status, error.response.data);
+    } else {
+      console.error('Error Konek:', error.message);
+    }
+
     bot.sendMessage(
       chatId,
       'Gagal melakukan pengecekan. Pastikan saldo API kamu mencukupi atau coba lagi nanti.'
