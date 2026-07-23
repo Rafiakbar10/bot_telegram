@@ -1,5 +1,5 @@
 {
-  "name": "bot-telegram",
+  "name": "bot-wa-gtc",
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
@@ -7,6 +7,7 @@
   },
   "dependencies": {
     "axios": "^1.6.0",
-    "node-telegram-bot-api": "^0.66.0"
+    "qrcode-terminal": "^0.12.0",
+    "whatsapp-web.js": "^1.23.0"
   }
 }
