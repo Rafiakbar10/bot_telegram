@@ -1,28 +1,33 @@
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
 
+// Membaca variabel dari environment Railway
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const API_KEY_GTC = process.env.API_KEY_GTC;
 
 if (!TELEGRAM_TOKEN || !API_KEY_GTC) {
-  console.error('Error: TELEGRAM_TOKEN atau API_KEY_GTC belum diisi!');
+  console.error('CRITICAL ERROR: TELEGRAM_TOKEN atau API_KEY_GTC belum diisi di Railway!');
   process.exit(1);
 }
 
 const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
 
+// Perintah /start
 bot.onText(/\/start/, (msg) => {
   bot.sendMessage(
     msg.chat.id,
-    'Halo! Silakan kirimkan nomor HP (contoh: 08123456789) untuk cek nama/tagar.'
+    'Halo! Silakan kirimkan nomor HP (contoh: 08123456789) untuk mengecek tagar/nama.'
   );
 });
 
+// Penanganan pesan masuk
 bot.on('message', async (msg) => {
   const text = msg.text ? msg.text.trim() : '';
 
+  // Abaikan jika berupa command seperti /start
   if (text.startsWith('/')) return;
 
+  // Validasi format nomor HP (08xx, 10-15 digit)
   if (!/^08\d{8,13}$/.test(text)) {
     return bot.sendMessage(
       msg.chat.id,
@@ -44,43 +49,43 @@ bot.on('message', async (msg) => {
       {
         headers: {
           'Content-Type': 'application/json',
-          'x-api-key': API_KEY_GTC.trim()
+          'x-api-key': API_KEY_GTC.trim(),
+          // User-Agent ini penting agar request tidak dianggap bot spam oleh Cloudflare
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         },
-        timeout: 60000 // Beri waktu hingga 60 detik karena wait: true butuh waktu captcha
+        timeout: 60000 // Menunggu respon hingga 60 detik
       }
     );
 
     const result = response.data;
-    console.log('Respon API:', JSON.stringify(result));
+    console.log('Respon sukses dari server:', JSON.stringify(result));
 
-    // Jika respon mengembalikan data/tags
     if (result && (result.data || result.tags)) {
-      const dataTag = result.data || result;
+      const payload = result.data || result;
       let messageText = `*Hasil Cek Nomor ${text}:*\n\n`;
 
-      if (Array.isArray(dataTag.tags)) {
-        messageText += dataTag.tags.map((tag) => `- ${tag}`).join('\n');
-      } else if (typeof dataTag === 'object') {
-        messageText += '```json\n' + JSON.stringify(dataTag, null, 2) + '\n```';
+      if (Array.isArray(payload.tags) && payload.tags.length > 0) {
+        messageText += payload.tags.map((tag) => `- ${tag}`).join('\n');
+      } else if (payload.tags) {
+        messageText += String(payload.tags);
       } else {
-        messageText += String(dataTag);
+        messageText += 'Tidak ditemukan tagar untuk nomor ini.';
       }
 
       bot.sendMessage(chatId, messageText, { parse_mode: 'Markdown' });
     } else {
-      bot.sendMessage(chatId, 'Pengecekan selesai, namun tidak ada tagar yang ditemukan.');
+      bot.sendMessage(chatId, 'Pengecekan selesai, namun tidak ada data tagar yang ditemukan.');
     }
   } catch (error) {
-    // Mencatat detail error ke Log Railway
     if (error.response) {
-      console.error('Error dari API Topupcuy:', error.response.status, error.response.data);
+      console.error('Error Respon Server:', error.response.status, error.response.data);
     } else {
-      console.error('Error Konek:', error.message);
+      console.error('Error Koneksi:', error.message);
     }
 
     bot.sendMessage(
       chatId,
-      'Gagal melakukan pengecekan. Pastikan saldo API kamu mencukupi atau coba lagi nanti.'
+      'Gagal melakukan pengecekan. Silakan periksa saldo API kamu atau coba beberapa saat lagi.'
     );
   }
 });
