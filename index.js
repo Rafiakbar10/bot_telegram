@@ -1,91 +1,90 @@
-const TelegramBot = require('node-telegram-bot-api');
+const { Client, LocalAuth } = require('whatsapp-web.js');
+const qrcode = require('qrcode-terminal');
 const axios = require('axios');
 
-// Membaca variabel dari environment Railway
-const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const API_KEY_GTC = process.env.API_KEY_GTC;
 
-if (!TELEGRAM_TOKEN || !API_KEY_GTC) {
-  console.error('CRITICAL ERROR: TELEGRAM_TOKEN atau API_KEY_GTC belum diisi di Railway!');
+if (!API_KEY_GTC) {
+  console.error('CRITICAL ERROR: API_KEY_GTC belum diisi di Variables Railway!');
   process.exit(1);
 }
 
-const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
-
-// Perintah /start
-bot.onText(/\/start/, (msg) => {
-  bot.sendMessage(
-    msg.chat.id,
-    'Halo! Silakan kirimkan nomor HP (contoh: 08123456789) untuk mengecek tagar/nama.'
-  );
+const client = new Client({
+  authStrategy: new LocalAuth(),
+  puppeteer: {
+    headless: true,
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-accelerated-2d-canvas',
+      '--no-first-run',
+      '--no-zygote',
+      '--disable-gpu'
+    ]
+  }
 });
 
-// Penanganan pesan masuk
-bot.on('message', async (msg) => {
-  const text = msg.text ? msg.text.trim() : '';
+// Menampilkan QR Code di Deploy Logs Railway
+client.on('qr', (qr) => {
+  console.log('====================================================');
+  console.log('SCAN QR CODE DI BAWAH INI LEWAT WHATSAPP HP KAMU:');
+  console.log('====================================================');
+  qrcode.generate(qr, { small: true });
+});
 
-  // Abaikan jika berupa command seperti /start
-  if (text.startsWith('/')) return;
+client.on('ready', () => {
+  console.log('Bot WhatsApp berhasil online dan siap digunakan!');
+});
 
-  // Validasi format nomor HP (08xx, 10-15 digit)
-  if (!/^08\d{8,13}$/.test(text)) {
-    return bot.sendMessage(
-      msg.chat.id,
-      'Format nomor tidak valid. Nomor harus berawalan 08 dan terdiri dari 10-15 digit angka.'
-    );
-  }
+client.on('message', async (msg) => {
+  const text = msg.body ? msg.body.trim() : '';
 
-  const chatId = msg.chat.id;
-  bot.sendMessage(chatId, 'Sedang memproses pengecekan, mohon tunggu sebentar...');
+  if (/^08\d{8,13}$/.test(text)) {
+    msg.reply('Sedang memproses pengecekan nomor, mohon tunggu sebentar...');
 
-  try {
-    const response = await axios.post(
-      'https://gtc.topupcuy.com/api/v1/check',
-      {
-        number: text,
-        strategy: 'smart',
-        wait: true
-      },
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': API_KEY_GTC.trim(),
-          // User-Agent ini penting agar request tidak dianggap bot spam oleh Cloudflare
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    try {
+      const response = await axios.post(
+        'https://gtc.topupcuy.com/api/v1/check',
+        {
+          number: text,
+          strategy: 'smart',
+          wait: true
         },
-        timeout: 60000 // Menunggu respon hingga 60 detik
-      }
-    );
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': API_KEY_GTC.trim(),
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+          },
+          timeout: 60000
+        }
+      );
 
-    const result = response.data;
-    console.log('Respon sukses dari server:', JSON.stringify(result));
+      const result = response.data;
+      console.log('Respon API:', JSON.stringify(result));
 
-    if (result && (result.data || result.tags)) {
-      const payload = result.data || result;
-      let messageText = `*Hasil Cek Nomor ${text}:*\n\n`;
+      if (result && (result.data || result.tags)) {
+        const payload = result.data || result;
+        let replyMessage = `*Hasil Cek Nomor ${text}:*\n\n`;
 
-      if (Array.isArray(payload.tags) && payload.tags.length > 0) {
-        messageText += payload.tags.map((tag) => `- ${tag}`).join('\n');
-      } else if (payload.tags) {
-        messageText += String(payload.tags);
+        if (Array.isArray(payload.tags) && payload.tags.length > 0) {
+          replyMessage += payload.tags.map((tag) => `- ${tag}`).join('\n');
+        } else if (payload.tags) {
+          replyMessage += String(payload.tags);
+        } else {
+          replyMessage += 'Tidak ditemukan tagar untuk nomor ini.';
+        }
+
+        msg.reply(replyMessage);
       } else {
-        messageText += 'Tidak ditemukan tagar untuk nomor ini.';
+        msg.reply('Pengecekan selesai, namun tidak ada data tagar yang ditemukan.');
       }
-
-      bot.sendMessage(chatId, messageText, { parse_mode: 'Markdown' });
-    } else {
-      bot.sendMessage(chatId, 'Pengecekan selesai, namun tidak ada data tagar yang ditemukan.');
+    } catch (error) {
+      console.error('Error API:', error.message);
+      msg.reply('Gagal melakukan pengecekan. Pastikan saldo API kamu mencukupi atau coba beberapa saat lagi.');
     }
-  } catch (error) {
-    if (error.response) {
-      console.error('Error Respon Server:', error.response.status, error.response.data);
-    } else {
-      console.error('Error Koneksi:', error.message);
-    }
-
-    bot.sendMessage(
-      chatId,
-      'Gagal melakukan pengecekan. Silakan periksa saldo API kamu atau coba beberapa saat lagi.'
-    );
   }
 });
+
+client.initialize();
